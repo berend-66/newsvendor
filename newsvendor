@@ -1,1 +1,503 @@
 
+###########################################################
+### Imports
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D 
+import scipy.stats as st
+
+###########################################################
+### mS= Sales(vX, vY)
+def Sales(vXi, vY):
+    """
+    Purpose:
+        Find sales mS for supply vX and demand vY
+    Inputs:
+        vX      iX vector, supply
+        vY      iY vector, demand
+    Return value:
+        mS      iX x iY matrix, sales
+    """
+    vXi= np.asarray(vXi).reshape(-1, 1)     # Force X to a COLUMN vector
+    vY= np.asarray(vY).reshape(1, -1)     # Force Y to a ROW vector
+    mS= np.minimum(vXi, vY)
+
+    return mS
+
+###########################################################
+
+### mPr= Profit(vX, mS, dP, dC)
+def Profit(vXi, mS, dP, dC):
+    """
+    Purpose:
+        Find profit for supply vX with sales mS
+    Inputs:
+        vX      iX vector, supply
+        mS      iX x iY matrix, sales
+        dP      double, sales price
+        dC      double, cost
+    Return value:
+        mPr     iX x iY matrix, profit
+    """
+    vXi= np.asarray(vXi).reshape(-1, 1)     # Force X to a COLUMN vector
+    mPr= dP*mS - dC*vXi
+
+    return mPr
+
+########################################################### 
+
+### (vEPr, vEPr2)= MomProfit(vXi, dP, dC, dLambda, dF) 
+def MomProfit(vXi, dP, dC, dLambda, dF= 5.0):
+    """
+    Purpose:
+        Find the first two moments of profit for supply vX, with demand
+        coming from a Poisson density with parameter dLambda
+    Inputs:
+        vX      iX vector, supply
+        dP      double, sales price
+        dC      double, cost
+        dLambda double, Poisson parameter, expectation of demand
+        dF      (optional, default= 5.0) double, factor to use in deciding on range of y
+    Return value:
+        vEPr    iX vector, expected profit
+        vEPr2   iX vector, expected squared profit
+    """
+    vY= np.arange(0, dF*dLambda)                   # Get some overly large range of demands Y
+    vProbPi= st.poisson.pmf(vY, dLambda)
+    
+    mS= Sales(vXi, vY)
+    mPr= Profit(vXi, mS, dP, dC)
+    mPr2= (mPr**2)                        # Get squared profits as well
+    
+    # Get the first two moments
+    vEPr=  mPr @ vProbPi                
+    vEPr2= mPr2  @ vProbPi  # is this not the same as vEpr**2, it seems like it is 
+
+    return (vEPr, vEPr2)
+
+###########################################################
+
+### vU= Utility(vX, dP, dC, dLambda, dGamma, dF= 5.0)
+def Utility(vXi, dP, dC, dLambda, dGamma, dF= 5.0):
+    """
+    Purpose:
+        Find the utility for supply vX, with demand
+        coming from a Poisson density with parameter dLambda
+    Inputs:
+        vX      iX vector, supply
+        dP      double, sales price
+        dC      double, cost
+        dLambda double, Poisson parameter, expectation of demand
+        dGamma  double, risk aversion
+        dF      (optional, default= 5.0) double, factor to use in deciding on range of y
+    Return value:
+        vU      iX vector, utility
+    """
+    (vEPr, vEPr2)= MomProfit(vXi, dP, dC, dLambda, dF)
+    vVarPr= vEPr2 - vEPr**2
+    vU= vEPr - dGamma * vVarPr
+
+    return vU
+
+###########################################################
+    
+def computeDistributionAndParameters(vY, dLambda, dMu, dS2, dF, dS):
+    """
+    Purpose: creating the probability functions of different distributions
+
+    Parameters
+    ----------
+    dLambda : double, Poisson parameter, expectation of demand
+    dMu : double, average of demand
+    dS2 : double, variance of demand
+    dF : double, factor to use in deciding on range of y
+    vY : iY vector, demand
+    dS : double, standard deviation of demand
+
+    Returns
+    -------
+    None.
+
+    """
+    
+    iN= np.round(dMu**2 / (dMu - dS2)).astype(int)
+    dPi= dMu / iN
+    vYi= np.arange(0, dF*dLambda)
+    vRangeNormal = np.linspace(dMu - 3*dS, dMu + 3*dS, 100)
+
+    
+    vProbPi= st.poisson.pmf(vYi, dLambda)
+    vProbBi= st.binom.pmf(vYi, iN, dPi)
+    vProbNorm = st.norm.pdf(vYi, dMu, dS) 
+    
+    createGraphsDistribution(vY, vYi, vProbPi, vProbBi, vProbNorm)
+    
+def createGraphsDistribution(vY, vYi, vProbPi, vProbBi, vProbNorm):
+    """
+    Purpose: creating a graph, comparing the different distributions with the dataset used
+
+    Parameters
+    ----------
+    vY : iY vector, demand
+    vYi : vector, demand in range 0, 3*dlambda
+    vProbPi : vector, pmf of Poisson distribution
+    vProbBi : vector, pmf of Binomial distribution
+    vProbNorm : vector, pdf of Normal distribution
+
+    Returns
+    -------
+    None.
+
+    """
+    
+    plt.figure()      # Start a figure, but do not show yet 
+    plt.title('Distributions')
+    plt.ylabel('Probability')
+    plt.xlabel('Order size')
+    plt.hist(vY, density=True, label='Histogram')
+    plt.plot(vYi, vProbPi, label='Poisson')
+    plt.plot(vYi, vProbBi, label='Binomial')
+    plt.plot(vYi, vProbNorm, label='Normal')
+    plt.legend()      # build the legend
+    plt.show()
+        
+    
+    
+###########################################################
+### graph= createGraphs(vXi, iXPi, iXu, vVarPr)
+def createProfitRiskUtilityGraphs(vXi, iXPi, iXu, vVarPr, vEPr, vU):
+    """
+    Purpose: create graphs, plotting order size vs. profit, risk and utility
+
+    Parameters
+    ----------
+    vXi : vector, supply in range of 80, 160
+    iXPi : integer, location of optimal profit for given supply
+    iXu : integer, location of optimal utility for given supply 
+    vVarPr : vector, variance of the profit
+    vEPr : vector, expected profit 
+    vU : vector, utility
+    Returns
+    -------
+    None.
+
+    """
+    plt.figure()
+    plt.subplot(1,3,1)          # first graph
+    plt.title('Profit vs order size')
+    plt.ylabel('Profit')
+    plt.xlabel('Order size')
+    plt.axvline(x=vXi[iXPi], color='r', label='x$^{π}$')
+    plt.axvline(x=vXi[iXu], color='blue', label='x$^{U}$')
+    plt.plot(vXi, vEPr, label='E(π(x))')         
+    plt.legend(handlelength=1.0)
+    
+    plt.subplot(1,3,2)          # second graph
+    plt.title('Risk vs order size')
+    plt.ylabel('Variance')
+    plt.xlabel('Order size')
+    plt.axvline(x=vXi[iXPi], color='r', label='x$^{π}$')
+    plt.axvline(x=vXi[iXu], color='blue', label='x$^{U}$')
+    plt.plot(vXi, vVarPr, label='Var(π(x))')
+    plt.legend(handlelength=1.0)
+    
+    plt.subplot(1,3,3)          # third graph
+    plt.title('Utility vs order size')
+    plt.ylabel('Utility')
+    plt.xlabel('Order size')
+    plt.axvline(x=vXi[iXPi], color='r', label='x$^{π}$')
+    plt.axvline(x=vXi[iXu], color='blue', label='x$^{U}$')
+    plt.plot(vXi, vU, label='U(x, γ=3)')
+    plt.legend(handlelength=1.0)
+    
+    plt.subplots_adjust(left=0.125, right=1.3, wspace=0.5)
+    plt.show()
+     
+
+###########################################################
+### computeProfitRiskUtility(vXi, dP, dC, dLambda, dF, dGamma)
+def computeProfitRiskUtility(vXi, vEPr, vEPr2, dGamma):
+    """
+    Purpose: compute the location of the optimal profit and utility
+
+    Parameters
+    ----------
+    vXi : vector, supply in range of 80, 160
+    vEPr : vector, expected profit
+    vEPr2 : vector, second moment of expected profit 
+    dGamma : double, double, risk aversion
+
+    Returns
+    -------
+    None.
+
+    """
+    vVarPr= vEPr2 - vEPr**2
+    vU= vEPr - dGamma*vVarPr
+    
+    iXPi= np.argmax(vEPr)       # find location of optimal profit 
+    iXu= np.argmax(vU)      # find location of optimal utility 
+    
+    print(f'The optimal profit of {round(vEPr[iXPi])} is generated at a supply of xPi={vXi[iXPi]} and has a utility of {round(vU[iXPi])}')
+    print(f'The optimal utility of {round(vU[iXu])} is generated at a supply of xU={vXi[iXu]} and has a profit of {round(vEPr[iXu])}')
+
+    #print(vXi[24], round(vEPr[24]), round(vU[24]))  #103-80 = 23 for village 2  104-80=24 for village 1
+    
+    createProfitRiskUtilityGraphs(vXi, iXPi, iXu, vVarPr, vEPr, vU)
+    
+    
+###########################################################
+### risk aversion graphs= createRiskAversionGraphs(vGamma, vXOpt, vUOpt)
+def createRiskAversionGraphs(vGamma, vXOpt, vUOpt):
+    """
+    Purpose: create graphs plotting risk aversion factor versus order size and utility
+
+    ----------
+    vGamma : vector, gamma's in range of 0,5
+    vXOpt : vector, 0 vector 
+    vUOpt : vector, 0 vector
+
+    Returns
+    -------
+    None.
+
+    """
+    plt.figure()
+    plt.subplot(1,2,1)                  #graph 1
+    plt.title('Order size vs gamma')
+    plt.ylabel('Order size')
+    plt.xlabel('Gamma')
+    plt.plot(vGamma, vXOpt, label='γ x x$^{U}$')
+    plt.legend()
+    
+    plt.subplot(1,2,2)                  #graph 2 
+    plt.title('Utility vs gamma')       
+    plt.ylabel('Utility')
+    plt.xlabel('Gamma')
+    plt.plot(vGamma, vUOpt, label='γ x U(x$^{U}$, γ')
+    plt.legend()
+    
+    plt.subplots_adjust(left=0.125, right=1.3, wspace=0.3)
+    plt.show()
+
+
+###########################################################
+### deduce @@@@@
+def deduceRiskAversion(vXi, vEPr, vEPr2):
+    """
+    Purpose: find the optimal supply for gamma in range [0,5]  
+
+    Parameters
+    ----------
+    vXi : vector, supply in range (80, 160)
+    vEPr : vector, expected profit 
+    vEPr2 : vector, second moment of expected profit 
+
+    Returns
+    -------
+    None.
+
+    """
+    vGamma= np.arange(0, 5, 0.1)
+    iG= vGamma.shape[0]
+    iXX= vXi.shape[0]
+    vVarPr= vEPr2 - vEPr**2             #you are calculating vVarPr twice, here and in the computeProfitRiskUtility function
+    
+    vUOpt= np.zeros_like(vGamma)
+    vXOpt= np.zeros_like(vGamma)
+    for g in range(iG):
+        dGamma= vGamma[g]
+        vU= vEPr - dGamma * vVarPr
+        i= np.argmax(vU)
+        vUOpt[g]= vU[i]
+        vXOpt[g]= vXi[i]
+        
+    iX= 103   #finding optimal gamma for a certain supply, note try to make this iX= vXi[iXPi], maybe by rearranging the functions
+    vI= vXOpt == iX
+    print ('\nOptimal supply x=%i is found for gamma= ' % iX, vGamma[vI])             #is not optimal supply
+            
+    createRiskAversionGraphs(vGamma, vXOpt, vUOpt)
+    
+###########################################################
+### graphs= createLoglikelihoodGraphs(vLambda, vLLg, dLambdaML, dCrit, vChi2)
+def createLoglikelihoodGraphs(vXi, vLambda, vLLg, dLambdaML, dCrit, vChi2):
+    """
+    Purpose: create the graphs plotting lambda vs loglikelihod and graphing the chi squared distribution 
+
+    Parameters
+    ----------
+    vX : iX vector, supplu
+    vLambda : vector, different values for Lambda
+    vLLg : vector, 0 vector
+    dLambdaML : double, lambda of maximum likelihood
+    dCrit : double, critical value of chi squared distribution
+    vChi2 : double, pdf of chi squared distribution
+
+    Returns
+    -------
+    None.
+
+    """
+    plt.figure()
+    plt.subplot(1,2,1)                          #graph 1
+    plt.title('Loglikelihood vs lambda')       
+    plt.ylabel('Loglikelihood')
+    plt.xlabel('Lambda')
+    plt.plot(vLambda, vLLg, label='LL(Poisson)')
+    plt.axvline(dLambdaML, color='red', label='λ$_{ML}$')
+    plt.legend()
+    
+    plt.subplot(1,2,2)                          #graph 2 
+    plt.title('Chi squared distribution')       
+    plt.plot(vXi, vChi2, label='χ2')
+    plt.axvline(dCrit, color='red', label='dCrit')
+    plt.ylim(0)
+    plt.legend()
+    plt.show()
+
+    #add legends
+
+###########################################################
+### computeML= 
+def computeML(dLambda, vY, dAlpha, vXi, dP, dC, dGamma):
+    """
+    Purpose: compute the maximum likelihood and the critical value of chi2 density 
+
+    Parameters
+    ----------
+    dLambda : double, Poisson parameter, expectation of demand
+    vY : iY vector, demand
+    dAlpha : double, confidence level 
+    vXi : vector, supply in range (80, 160)
+    dP : double, price
+    dC : double, cost
+    dGamma : double, risk aversion 
+
+    Returns
+    -------
+    vLambdaCI: vector, values of lambda where the LR test statistic is not too large
+    vLambda: vector, different values for Lambda
+
+    """
+    dDiff= 0.2
+    iNum= 1000
+    vLambda= np.linspace((1-dDiff)*dLambda, (1+dDiff)*dLambda, num=iNum)
+    vLLg= np.zeros(iNum)                #compute loglikelihood for all the lambdas
+    for i in range(iNum):
+        dLambda0= vLambda[i]
+        vLLg[i]= st.poisson.logpmf(vY, dLambda0).sum()
+        
+    i= np.argmax(vLLg)          #computing the maximum likelihood estimate
+    dLambdaML= vLambda[i]
+    dLLMax= vLLg[i]
+    print ("\nMax LL= %g, with lambda=%g. Original estimate lambda= %g" % (dLLMax, dLambdaML, dLambda))
+    
+    iDoF=1 # degrees of freedom = number of restrictions
+    dCrit= st.chi2.ppf(1-dAlpha, iDoF)  # Critical value of chi2 density
+    print ("Critical value chi2(%g, D.o.F=%i)= %g\n" % (1-dAlpha, iDoF, dCrit))
+    vX= np.arange(0, 5, .01)
+    vChi2= st.chi2.pdf(vX, iDoF)
+    
+    vLR= -2*(vLLg - dLLMax)
+    vI= vLR <= dCrit
+    vLambdaCI= vLambda[vI]
+    print ("Values of lambda where the LR test statistic is not too large: ", vLambdaCI) 
+    
+    createLoglikelihoodGraphs(vX, vLambda, vLLg, dLambdaML, dCrit, vChi2)
+    
+    return(vLambdaCI, vLambda)      
+    
+def computeMaxMin(vXi, dP, dC, dGamma, dLambda, dAlpha, vY, vLambdaCI, vLambda):
+    """
+    Purpose: find max.min utility and the suply and lambda of maxmin utility and graphing this
+
+    Parameters
+    ----------
+    vXi :vector, supply in range (80, 160)
+    dP : double, price
+    dC : double, cost
+    dGamma : double, risk aversion
+    dLambda : double, Poisson parameter, expectation of demand
+    dAlpha : double, confidence level 
+    vY : iY vector, demand
+    vLambdaCI: vector, values of lambda where the LR test statistic is not too large
+    vLambda: vector, different values for Lambda
+
+    Returns
+    -------
+    None.
+
+    """
+    
+    #(vLambdaCI, vLambda) = computeML(dLambda, vY, dAlpha, vXi, dP, dC, dGamma)
+    iL= vLambdaCI.shape[0]
+    iXi= vXi.shape[0]
+    mU= np.zeros((iXi,iL))
+    plt.figure()
+    for i in range(iL):
+        vU= Utility(vXi, dP, dC, vLambdaCI[i], dGamma)
+        mU[:,i]= vU
+        plt.plot(vXi, vU, color= 'grey')
+        vUMin= mU.min(axis=1)  # Get minimal utility over all lambda's, so over columns
+        vIMin= mU.argmin(axis=1)  # Find for what lambda this minimal utility is attained
+
+        i= np.argmax(vUMin)       # Find maxmin utility index 
+
+    plt.plot(vXi, vUMin, color= 'blue')      # Accentuate minimal utility
+    plt.axvline(vXi[i], color='red')         # Show maxmin utility
+    
+    colors = ['grey', 'blue', 'red']
+    lines = [Line2D([0], [0], color=c, linewidth=2, linestyle='-') for c in colors] #create line legend so that the grey area can be in the legend
+    labels = ['U(x,p,c,θ,γ)', 'min$_θ$U(x,p,c,θ,γ)', 'x$^{U}$']
+    plt.legend(lines, labels)
+    plt.show()
+    
+    print("MaxMin of utility = %d" %max(vUMin))
+    print("Supply of MaxMin utility (argmax) = %d" % vXi[np.argmax(vUMin)])
+    print('Lambda of MaxMin utility = %.2f' % vLambda[np.argmax(max(vUMin))])
+
+###########################################################
+### main
+def main ():
+# Magic numbers
+    sIn= '/Users/deberend/Desktop/Academic Skills/nv1g50v2data.xlsx'
+    dP= 3.0
+    dC= 1.0
+    dGamma= 3
+    dF= 2
+    vX= [130, 90]
+    v= 1            #assign village here
+    dAlpha= 0.05
+    
+# Initialisation
+    vX= np.array(vX)
+    df= pd.read_excel(sIn, usecols=('G8V1','G8V2')) 
+    mY= df.values    # Get out the data from the dataframe
+    vY= mY[:,v]     # vY is the data from village 1
+    iX= vX[v]
+    vXi= np.arange(80, 160)
+    
+
+    
+# Estimation
+    dMu= vY.mean()
+    dS2= vY.var()
+    dS = vY.std()
+    dLambda= dMu
+    (vEPr, vEPr2)= MomProfit(vXi, dP, dC, dLambda, dF) # gives us the expected profit for certain X values and the first two moments
+    (vLambdaCI, vLambda) = computeML(dLambda, vY, dAlpha, vXi, dP, dC, dGamma)
+
+# Output
+    
+    computeDistributionAndParameters(vY, dLambda, dMu, dS2, dF, dS)
+    computeProfitRiskUtility(vXi, vEPr, vEPr2, dGamma) 
+    deduceRiskAversion(vXi, vEPr, vEPr2)
+    computeML(dLambda, vY, dAlpha, vXi, dP, dC, dGamma)
+    computeMaxMin(vXi, dP, dC, dGamma, dLambda, dAlpha, vY, vLambdaCI, vLambda)
+    
+########################################################### 
+### start main
+if __name__ == "__main__":
+    main ()
+
